@@ -26,7 +26,6 @@ function showHighlight(element) {
   if (!element || !highlightElement) return;
   const rect = element.getBoundingClientRect();
   // debug log to help diagnose visibility issues
-  console.debug("Element Screenshot: showHighlight", { tag: element.tagName, rect });
   highlightElement.style.left = rect.left + "px";
   highlightElement.style.top = rect.top + "px";
   highlightElement.style.width = rect.width + "px";
@@ -225,7 +224,6 @@ function onMouseOver(event) {
   if (selectionToolbar && selectionToolbar.contains(event.target)) return;
   // ignore the highlight element itself
   if (event.target.id === 'element-screenshot-highlight') return;
-  console.debug('Element Screenshot: mouseover', event.target);
   showHighlight(event.target);
 }
 
@@ -240,7 +238,6 @@ function onClick(event) {
   if (selectionToolbar && selectionToolbar.contains(event.target)) return;
   event.preventDefault();
   event.stopPropagation();
-  console.debug('Element Screenshot: click select', event.target);
   // set selection instead of capturing immediately
   // clear previous selection style
   if (selectedElement && selectedElement !== event.target) {
@@ -270,13 +267,10 @@ function onKeyDown(event) {
 
 // Listen for messages from popup or background
 browser.runtime.onMessage.addListener((request, sender, sendResponse) => {
-  console.debug('Element Screenshot: runtime message received', request);
   if (request.action === "startSelection") {
     if (!highlightElement) {
-      console.debug('Element Screenshot: creating highlight');
       highlightElement = createHighlight();
     }
-    console.debug('Element Screenshot: entering selection mode');
     enterSelectionMode();
   }
 });
