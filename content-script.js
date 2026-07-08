@@ -65,29 +65,39 @@ function createSelectionToolbar() {
     position: absolute;
     z-index: 100001;
     display: flex;
-    gap: 8px;
+    gap: 6px;
     background: rgba(255,255,255,0.95);
-    padding: 6px;
+    padding: 8px;
     border-radius: 6px;
     box-shadow: 0 2px 8px rgba(0,0,0,0.15);
     font-family: sans-serif;
     pointer-events: auto;
   `;
 
-  const captureBtn = document.createElement("button");
-  captureBtn.textContent = "Capture";
-  captureBtn.style.cssText = `
-    background:#4A90E2; color:white; border:none; padding:6px 10px; border-radius:4px; cursor:pointer;
+  const copyBtn = document.createElement("button");
+  copyBtn.textContent = "Copy";
+  copyBtn.style.cssText = `
+    background:#4A90E2; color:white; border:none; padding:6px 10px; border-radius:4px; cursor:pointer; font-size:12px;
   `;
-  captureBtn.addEventListener("click", (e) => {
+  copyBtn.addEventListener("click", (e) => {
     e.stopPropagation();
-    if (selectedElement) captureElement(selectedElement);
+    if (selectedElement) processScreenshot(selectedElement, "copy");
+  });
+
+  const downloadBtn = document.createElement("button");
+  downloadBtn.textContent = "Download";
+  downloadBtn.style.cssText = `
+    background:#4A90E2; color:white; border:none; padding:6px 10px; border-radius:4px; cursor:pointer; font-size:12px;
+  `;
+  downloadBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    if (selectedElement) processScreenshot(selectedElement, "download");
   });
 
   const cancelBtn = document.createElement("button");
   cancelBtn.textContent = "Cancel";
   cancelBtn.style.cssText = `
-    background:#eee; color:#333; border:none; padding:6px 10px; border-radius:4px; cursor:pointer;
+    background:#eee; color:#333; border:none; padding:6px 10px; border-radius:4px; cursor:pointer; font-size:12px;
   `;
   cancelBtn.addEventListener("click", (e) => {
     e.stopPropagation();
@@ -95,7 +105,8 @@ function createSelectionToolbar() {
     exitSelectionMode();
   });
 
-  toolbar.appendChild(captureBtn);
+  toolbar.appendChild(copyBtn);
+  toolbar.appendChild(downloadBtn);
   toolbar.appendChild(cancelBtn);
   document.body.appendChild(toolbar);
   return toolbar;
@@ -173,18 +184,98 @@ async function captureElement(element) {
         elementCoords.height
       );
 
-      // Convert canvas to blob and download
-      canvas.toBlob((blob) => {
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement("a");
-        link.href = url;
-        link.download = `screenshot-${Date.now()}.png`;
-        link.click();
-        URL.revokeObjectURL(url);
+      // Return canvas for further processing
+      return canvas;
+    };
+
+    img.onerror = () => {
+      throw new Error("Failed to load screenshot image");
+    };
+
+    img.src = response.imageData;
+  } catch (error) {
+    console.error("Capture error:", error);
+    alert("Failed to capture: " + error.message);
+    exitSelectionMode();
+  }
+}
+
+// Convert canvas to blob and perform action
+async function processScreenshot(element, action) {
+  try {
+    // Get element coordinates
+    const rect = element.getBoundingClientRect();
+    const dpr = window.devicePixelRatio;
+    const scrollX = window.scrollX;
+    const scrollY = window.scrollY;
+
+    // Element coordinates in page space (accounting for scroll)
+    const elementCoords = {
+      x: Math.round((rect.left + scrollX) * dpr),
+      y: Math.round((rect.top + scrollY) * dpr),
+      width: Math.round(rect.width * dpr),
+      height: Math.round(rect.height * dpr),
+    };
+
+    // Request screenshot from background
+    const response = await browser.runtime.sendMessage({
+      action: "captureTab",
+    });
+
+    if (response.error) {
+      alert("Screenshot failed: " + response.error);
+      return;
+    }
+
+    // Create image from data URL
+    const img = new Image();
+    img.onload = () => {
+      // Create canvas and crop
+      const canvas = document.createElement("canvas");
+      canvas.width = elementCoords.width;
+      canvas.height = elementCoords.height;
+      const ctx = canvas.getContext("2d");
+
+      ctx.drawImage(
+        img,
+        elementCoords.x,
+        elementCoords.y,
+        elementCoords.width,
+        elementCoords.height,
+        0,
+        0,
+        elementCoords.width,
+        elementCoords.height
+      );
+
+      // Convert canvas to blob
+      canvas.toBlob(async (blob) => {
+        if (action === "download") {
+          const url = URL.createObjectURL(blob);
+          const link = document.createElement("a");
+          link.href = url;
+          link.download = `screenshot-${Date.now()}.png`;
+          link.click();
+          URL.revokeObjectURL(url);
+        } else if (action === "copy") {
+          try {
+            await navigator.clipboard.write([
+              new ClipboardItem({ "image/png": blob }),
+            ]);
+            alert("Screenshot copied to clipboard!");
+          } catch (err) {
+            console.error("Clipboard error:", err);
+            alert("Failed to copy to clipboard: " + err.message);
+          }
+        }
 
         // Exit selection mode
         exitSelectionMode();
       });
+    };
+
+    img.onerror = () => {
+      throw new Error("Failed to load screenshot image");
     };
 
     img.src = response.imageData;
@@ -258,10 +349,10 @@ function onKeyDown(event) {
     exitSelectionMode();
     return;
   }
-  // Enter to capture when an element is selected
+  // Enter to download when an element is selected
   if (event.key === "Enter" && selectedElement) {
     event.preventDefault();
-    captureElement(selectedElement);
+    processScreenshot(selectedElement, "download");
   }
 }
 
