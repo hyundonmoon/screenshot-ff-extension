@@ -5,6 +5,8 @@ let selectedElement = null;
 let selectionToolbar = null;
 let previousStyle = null;
 let annotatorOverlay = null;
+let annotatorPanel = null;
+let annotatorCanvasWrap = null;
 let annotatorCanvas = null;
 let annotatorCtx = null;
 let annotatorImage = null;
@@ -314,11 +316,31 @@ function openAnnotator(imageDataUrl) {
     const maxWidth = Math.max(320, window.innerWidth - 32);
     const maxHeight = Math.max(240, window.innerHeight - 96);
     const scale = Math.min(1, maxWidth / image.width, maxHeight / image.height);
+    const displayWidth = Math.max(320, Math.min(image.width, maxWidth));
+    const displayHeight = Math.max(240, Math.min(Math.round(image.height * (displayWidth / image.width)), maxHeight));
 
     annotatorCanvas.width = image.width;
     annotatorCanvas.height = image.height;
     annotatorCanvas.style.width = `${Math.max(1, Math.floor(image.width * scale))}px`;
     annotatorCanvas.style.height = `${Math.max(1, Math.floor(image.height * scale))}px`;
+
+    annotatorOverlay.style.alignItems = "flex-start";
+    annotatorOverlay.style.overflow = "auto";
+    annotatorOverlay.style.justifyContent = "center";
+    annotatorOverlay.style.paddingTop = "16px";
+
+    if (annotatorPanel) {
+      annotatorPanel.style.width = `${displayWidth + 24}px`;
+      annotatorPanel.style.maxWidth = `${maxWidth}px`;
+      annotatorPanel.style.maxHeight = `${maxHeight}px`;
+      annotatorPanel.style.overflow = "hidden";
+    }
+
+    if (annotatorCanvasWrap) {
+      annotatorCanvasWrap.style.width = "100%";
+      annotatorCanvasWrap.style.maxWidth = "100%";
+      annotatorCanvasWrap.style.maxHeight = `${Math.max(0, displayHeight)}px`;
+    }
 
     redrawAnnotator();
   };
@@ -342,8 +364,8 @@ function ensureAnnotator() {
     padding: 16px;
   `;
 
-  const panel = document.createElement("div");
-  panel.style.cssText = `
+  annotatorPanel = document.createElement("div");
+  annotatorPanel.style.cssText = `
     display: flex;
     flex-direction: column;
     gap: 12px;
@@ -410,8 +432,8 @@ function ensureAnnotator() {
   header.appendChild(title);
   header.appendChild(actions);
 
-  const canvasWrap = document.createElement("div");
-  canvasWrap.style.cssText = `
+  annotatorCanvasWrap = document.createElement("div");
+  annotatorCanvasWrap.style.cssText = `
     display: flex;
     align-items: center;
     justify-content: center;
@@ -437,10 +459,10 @@ function ensureAnnotator() {
   annotatorCanvas.addEventListener("pointercancel", onAnnotatorPointerUp);
   annotatorCanvas.addEventListener("pointerleave", onAnnotatorPointerUp);
 
-  canvasWrap.appendChild(annotatorCanvas);
-  panel.appendChild(header);
-  panel.appendChild(canvasWrap);
-  annotatorOverlay.appendChild(panel);
+  annotatorCanvasWrap.appendChild(annotatorCanvas);
+  annotatorPanel.appendChild(header);
+  annotatorPanel.appendChild(annotatorCanvasWrap);
+  annotatorOverlay.appendChild(annotatorPanel);
   document.body.appendChild(annotatorOverlay);
 }
 
