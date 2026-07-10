@@ -73,13 +73,27 @@ function selectElement(element) {
 function moveSelection(direction) {
   if (!selectedElement) return;
 
-  const nextElement =
-    direction === "up"
-      ? selectedElement.parentElement
-      : selectedElement.children[0] || null;
+  let nextElement = null;
+
+  if (direction === "up") {
+    nextElement = selectedElement.parentElement;
+  } else if (direction === "down") {
+    nextElement = selectedElement.children[0] || null;
+  } else if (direction === "left") {
+    // previous element sibling (element node)
+    nextElement = selectedElement.previousElementSibling;
+  } else if (direction === "right") {
+    // next element sibling
+    nextElement = selectedElement.nextElementSibling;
+  }
 
   if (!nextElement) {
-    alert(direction === "up" ? "No parent element." : "No child element.");
+    let msg = "No matching element.";
+    if (direction === "up") msg = "No parent element.";
+    if (direction === "down") msg = "No child element.";
+    if (direction === "left") msg = "No previous sibling.";
+    if (direction === "right") msg = "No next sibling.";
+    alert(msg);
     return;
   }
 
@@ -122,6 +136,26 @@ function createSelectionToolbar() {
     moveSelection("down");
   });
 
+  const leftBtn = document.createElement("button");
+  leftBtn.textContent = "← Left";
+  leftBtn.style.cssText = `
+    background:#eee; color:#333; border:none; padding:6px 10px; border-radius:4px; cursor:pointer; font-size:12px;
+  `;
+  leftBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    moveSelection("left");
+  });
+
+  const rightBtn = document.createElement("button");
+  rightBtn.textContent = "→ Right";
+  rightBtn.style.cssText = `
+    background:#eee; color:#333; border:none; padding:6px 10px; border-radius:4px; cursor:pointer; font-size:12px;
+  `;
+  rightBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    moveSelection("right");
+  });
+
   const copyBtn = document.createElement("button");
   copyBtn.textContent = "Copy";
   copyBtn.style.cssText = `
@@ -155,6 +189,8 @@ function createSelectionToolbar() {
 
   toolbar.appendChild(upBtn);
   toolbar.appendChild(downBtn);
+  toolbar.appendChild(leftBtn);
+  toolbar.appendChild(rightBtn);
   toolbar.appendChild(copyBtn);
   toolbar.appendChild(downloadBtn);
   toolbar.appendChild(cancelBtn);
@@ -341,6 +377,18 @@ function onKeyDown(event) {
   if (event.key === "ArrowDown") {
     event.preventDefault();
     moveSelection("down");
+    return;
+  }
+
+  if (event.key === "ArrowLeft") {
+    event.preventDefault();
+    moveSelection("left");
+    return;
+  }
+
+  if (event.key === "ArrowRight") {
+    event.preventDefault();
+    moveSelection("right");
     return;
   }
 
