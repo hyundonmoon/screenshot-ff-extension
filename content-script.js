@@ -25,7 +25,6 @@ function createHighlight() {
 function showHighlight(element) {
   if (!element || !highlightElement) return;
   const rect = element.getBoundingClientRect();
-  // debug log to help diagnose visibility issues
   highlightElement.style.left = rect.left + "px";
   highlightElement.style.top = rect.top + "px";
   highlightElement.style.width = rect.width + "px";
@@ -58,11 +57,40 @@ function clearSelectionStyle(element) {
   previousStyle = null;
 }
 
+function selectElement(element) {
+  if (!element) return;
+
+  if (selectedElement && selectedElement !== element) {
+    clearSelectionStyle(selectedElement);
+  }
+
+  selectedElement = element;
+  applySelectionStyle(selectedElement);
+  hideHighlight();
+  showToolbarNearElement(selectedElement);
+}
+
+function moveSelection(direction) {
+  if (!selectedElement) return;
+
+  const nextElement =
+    direction === "up"
+      ? selectedElement.parentElement
+      : selectedElement.children[0] || null;
+
+  if (!nextElement) {
+    alert(direction === "up" ? "No parent element." : "No child element.");
+    return;
+  }
+
+  selectElement(nextElement);
+}
+
 function createSelectionToolbar() {
   const toolbar = document.createElement("div");
   toolbar.id = "element-screenshot-toolbar";
   toolbar.style.cssText = `
-    position: absolute;
+    position: fixed;
     z-index: 100001;
     display: flex;
     gap: 6px;
@@ -73,6 +101,26 @@ function createSelectionToolbar() {
     font-family: sans-serif;
     pointer-events: auto;
   `;
+
+  const upBtn = document.createElement("button");
+  upBtn.textContent = "↑ Up";
+  upBtn.style.cssText = `
+    background:#eee; color:#333; border:none; padding:6px 10px; border-radius:4px; cursor:pointer; font-size:12px;
+  `;
+  upBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    moveSelection("up");
+  });
+
+  const downBtn = document.createElement("button");
+  downBtn.textContent = "↓ Down";
+  downBtn.style.cssText = `
+    background:#eee; color:#333; border:none; padding:6px 10px; border-radius:4px; cursor:pointer; font-size:12px;
+  `;
+  downBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    moveSelection("down");
+  });
 
   const copyBtn = document.createElement("button");
   copyBtn.textContent = "Copy";
@@ -105,6 +153,8 @@ function createSelectionToolbar() {
     exitSelectionMode();
   });
 
+  toolbar.appendChild(upBtn);
+  toolbar.appendChild(downBtn);
   toolbar.appendChild(copyBtn);
   toolbar.appendChild(downloadBtn);
   toolbar.appendChild(cancelBtn);
@@ -116,12 +166,15 @@ function showToolbarNearElement(element) {
   if (!element) return;
   if (!selectionToolbar) selectionToolbar = createSelectionToolbar();
   const rect = element.getBoundingClientRect();
-  // position above the element if possible
-  const top = Math.max(8, rect.top - 40);
-  const left = Math.min(window.innerWidth - 150, rect.left);
+  selectionToolbar.style.display = "flex";
+
+  const toolbarWidth = selectionToolbar.offsetWidth || 0;
+  const preferredTop = rect.top - 48;
+  const top = preferredTop >= 8 ? preferredTop : Math.min(window.innerHeight - 48, rect.bottom + 8);
+  const left = Math.max(8, Math.min(rect.left, window.innerWidth - toolbarWidth - 8));
+
   selectionToolbar.style.top = `${top}px`;
   selectionToolbar.style.left = `${left}px`;
-  selectionToolbar.style.display = "flex";
 }
 
 function hideToolbar() {
@@ -134,70 +187,6 @@ function clearSelection() {
     selectedElement = null;
   }
   hideToolbar();
-}
-
-// Capture and crop the selected element
-async function captureElement(element) {
-  try {
-    // Get element coordinates
-    const rect = element.getBoundingClientRect();
-    const dpr = window.devicePixelRatio;
-    const scrollX = window.scrollX;
-    const scrollY = window.scrollY;
-
-    // Element coordinates in page space (accounting for scroll)
-    const elementCoords = {
-      x: Math.round((rect.left + scrollX) * dpr),
-      y: Math.round((rect.top + scrollY) * dpr),
-      width: Math.round(rect.width * dpr),
-      height: Math.round(rect.height * dpr),
-    };
-
-    // Request screenshot from background
-    const response = await browser.runtime.sendMessage({
-      action: "captureTab",
-    });
-
-    if (response.error) {
-      alert("Screenshot failed: " + response.error);
-      return;
-    }
-
-    // Create image from data URL
-    const img = new Image();
-    img.onload = () => {
-      // Create canvas and crop
-      const canvas = document.createElement("canvas");
-      canvas.width = elementCoords.width;
-      canvas.height = elementCoords.height;
-      const ctx = canvas.getContext("2d");
-
-      ctx.drawImage(
-        img,
-        elementCoords.x,
-        elementCoords.y,
-        elementCoords.width,
-        elementCoords.height,
-        0,
-        0,
-        elementCoords.width,
-        elementCoords.height
-      );
-
-      // Return canvas for further processing
-      return canvas;
-    };
-
-    img.onerror = () => {
-      throw new Error("Failed to load screenshot image");
-    };
-
-    img.src = response.imageData;
-  } catch (error) {
-    console.error("Capture error:", error);
-    alert("Failed to capture: " + error.message);
-    exitSelectionMode();
-  }
 }
 
 // Convert canvas to blob and perform action
@@ -314,7 +303,7 @@ function onMouseOver(event) {
   // don't highlight toolbar
   if (selectionToolbar && selectionToolbar.contains(event.target)) return;
   // ignore the highlight element itself
-  if (event.target.id === 'element-screenshot-highlight') return;
+  if (event.target.id === "element-screenshot-highlight") return;
   showHighlight(event.target);
 }
 
@@ -329,15 +318,7 @@ function onClick(event) {
   if (selectionToolbar && selectionToolbar.contains(event.target)) return;
   event.preventDefault();
   event.stopPropagation();
-  // set selection instead of capturing immediately
-  // clear previous selection style
-  if (selectedElement && selectedElement !== event.target) {
-    clearSelectionStyle(selectedElement);
-  }
-  selectedElement = event.target;
-  applySelectionStyle(selectedElement);
-  hideHighlight();
-  showToolbarNearElement(selectedElement);
+  selectElement(event.target);
 }
 
 function onKeyDown(event) {
@@ -349,6 +330,20 @@ function onKeyDown(event) {
     exitSelectionMode();
     return;
   }
+  if (!selectedElement) return;
+
+  if (event.key === "ArrowUp") {
+    event.preventDefault();
+    moveSelection("up");
+    return;
+  }
+
+  if (event.key === "ArrowDown") {
+    event.preventDefault();
+    moveSelection("down");
+    return;
+  }
+
   // Enter to download when an element is selected
   if (event.key === "Enter" && selectedElement) {
     event.preventDefault();
