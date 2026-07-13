@@ -10,11 +10,15 @@ let annotatorCanvasWrap = null;
 let annotatorCanvas = null;
 let annotatorCtx = null;
 let annotatorImage = null;
-let annotatorStrokes = [];
-let annotatorCurrentStroke = null;
+let annotatorItems = [];
+let annotatorCurrentItem = null;
+let annotatorTool = "pen";
+let annotatorColor = "#ff3b30";
+let annotatorToolButtons = null;
+let annotatorColorInput = null;
 
-const ANNOTATION_COLOR = "#ff3b30";
 const ANNOTATION_WIDTH = 4;
+const ANNOTATION_TEXT_SIZE = 22;
 
 // Create a highlight overlay for hovered elements
 function createHighlight() {
@@ -310,8 +314,9 @@ function openAnnotator(imageDataUrl) {
   const image = new Image();
   image.onload = () => {
     annotatorImage = image;
-    annotatorStrokes = [];
-    annotatorCurrentStroke = null;
+    annotatorItems = [];
+    annotatorCurrentItem = null;
+    setAnnotatorTool("pen");
 
     const maxWidth = Math.max(320, window.innerWidth - 32);
     const maxHeight = Math.max(240, window.innerHeight - 96);
@@ -382,6 +387,7 @@ function ensureAnnotator() {
     display: flex;
     align-items: center;
     justify-content: space-between;
+    flex-wrap: wrap;
     gap: 12px;
     font-family: sans-serif;
   `;
@@ -389,6 +395,47 @@ function ensureAnnotator() {
   const title = document.createElement("div");
   title.textContent = "Annotate screenshot";
   title.style.cssText = `font-size: 14px; font-weight: 600; color: #333;`;
+
+  const controls = document.createElement("div");
+  controls.style.cssText = `
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  `;
+
+  const makeToolButton = (label, tool) => {
+    const button = document.createElement("button");
+    button.textContent = label;
+    button.type = "button";
+    button.style.cssText = `
+      background:#eee; color:#333; border:none; padding:6px 10px; border-radius:4px; cursor:pointer; font-size:12px;
+    `;
+    button.addEventListener("click", (e) => {
+      e.stopPropagation();
+      setAnnotatorTool(tool);
+    });
+    annotatorToolButtons[tool] = button;
+    return button;
+  };
+
+  annotatorToolButtons = {};
+  controls.appendChild(makeToolButton("Pen", "pen"));
+  controls.appendChild(makeToolButton("Rect", "rect"));
+  controls.appendChild(makeToolButton("Arrow", "arrow"));
+  controls.appendChild(makeToolButton("Text", "text"));
+
+  annotatorColorInput = document.createElement("input");
+  annotatorColorInput.type = "color";
+  annotatorColorInput.value = annotatorColor;
+  annotatorColorInput.title = "Annotation color";
+  annotatorColorInput.style.cssText = `
+    width:32px; height:32px; border:none; padding:0; background:transparent; cursor:pointer;
+  `;
+  annotatorColorInput.addEventListener("input", (e) => {
+    annotatorColor = e.target.value;
+  });
+  controls.appendChild(annotatorColorInput);
 
   const actions = document.createElement("div");
   actions.style.cssText = `display: flex; gap: 8px;`;
@@ -400,8 +447,8 @@ function ensureAnnotator() {
   `;
   undoBtn.addEventListener("click", (e) => {
     e.stopPropagation();
-    if (annotatorStrokes.length > 0) {
-      annotatorStrokes.pop();
+    if (annotatorItems.length > 0) {
+      annotatorItems.pop();
       redrawAnnotator();
     }
   });
@@ -430,6 +477,7 @@ function ensureAnnotator() {
   actions.appendChild(saveBtn);
   actions.appendChild(cancelBtn);
   header.appendChild(title);
+  header.appendChild(controls);
   header.appendChild(actions);
 
   annotatorCanvasWrap = document.createElement("div");
@@ -466,41 +514,105 @@ function ensureAnnotator() {
   document.body.appendChild(annotatorOverlay);
 }
 
-function redrawAnnotator() {
-  if (!annotatorCanvas || !annotatorCtx || !annotatorImage) return;
+function setAnnotatorTool(tool) {
+  annotatorTool = tool;
+  if (annotatorCanvas) {
+    annotatorCanvas.style.cursor = tool === "text" ? "text" : "crosshair";
+  }
+  if (!annotatorToolButtons) return;
+  Object.entries(annotatorToolButtons).forEach(([key, button]) => {
+    if (key === tool) {
+      button.style.background = "#4A90E2";
+      button.style.color = "#fff";
+    } else {
+      button.style.background = "#eee";
+      button.style.color = "#333";
+    }
+  });
+}
 
-  annotatorCtx.clearRect(0, 0, annotatorCanvas.width, annotatorCanvas.height);
-  annotatorCtx.drawImage(annotatorImage, 0, 0, annotatorCanvas.width, annotatorCanvas.height);
+function drawArrow(ctx, item) {
+  const headLength = Math.max(10, item.width * 3);
+  const dx = item.x2 - item.x1;
+  const dy = item.y2 - item.y1;
+  const angle = Math.atan2(dy, dx);
 
-  const drawStroke = (stroke) => {
-    if (!stroke || stroke.points.length === 0) return;
+  ctx.beginPath();
+  ctx.moveTo(item.x1, item.y1);
+  ctx.lineTo(item.x2, item.y2);
+  ctx.stroke();
 
-    annotatorCtx.save();
-    annotatorCtx.strokeStyle = stroke.color;
-    annotatorCtx.lineWidth = stroke.width;
-    annotatorCtx.lineCap = "round";
-    annotatorCtx.lineJoin = "round";
+  ctx.beginPath();
+  ctx.moveTo(item.x2, item.y2);
+  ctx.lineTo(
+    item.x2 - headLength * Math.cos(angle - Math.PI / 6),
+    item.y2 - headLength * Math.sin(angle - Math.PI / 6)
+  );
+  ctx.lineTo(
+    item.x2 - headLength * Math.cos(angle + Math.PI / 6),
+    item.y2 - headLength * Math.sin(angle + Math.PI / 6)
+  );
+  ctx.closePath();
+  ctx.fillStyle = item.color;
+  ctx.fill();
+}
 
-    if (stroke.points.length === 1) {
-      const point = stroke.points[0];
+function drawAnnotationItem(item) {
+  if (!item) return;
+
+  annotatorCtx.save();
+  annotatorCtx.strokeStyle = item.color;
+  annotatorCtx.fillStyle = item.color;
+  annotatorCtx.lineWidth = item.width || ANNOTATION_WIDTH;
+  annotatorCtx.lineCap = "round";
+  annotatorCtx.lineJoin = "round";
+
+  if (item.type === "pen") {
+    if (!item.points || item.points.length === 0) {
+      annotatorCtx.restore();
+      return;
+    }
+
+    if (item.points.length === 1) {
+      const point = item.points[0];
       annotatorCtx.beginPath();
-      annotatorCtx.arc(point.x, point.y, stroke.width / 2, 0, Math.PI * 2);
-      annotatorCtx.fillStyle = stroke.color;
+      annotatorCtx.arc(point.x, point.y, item.width / 2, 0, Math.PI * 2);
       annotatorCtx.fill();
       annotatorCtx.restore();
       return;
     }
 
     annotatorCtx.beginPath();
-    annotatorCtx.moveTo(stroke.points[0].x, stroke.points[0].y);
-    for (let i = 1; i < stroke.points.length; i += 1) {
-      annotatorCtx.lineTo(stroke.points[i].x, stroke.points[i].y);
+    annotatorCtx.moveTo(item.points[0].x, item.points[0].y);
+    for (let i = 1; i < item.points.length; i += 1) {
+      annotatorCtx.lineTo(item.points[i].x, item.points[i].y);
     }
     annotatorCtx.stroke();
-    annotatorCtx.restore();
-  };
+  } else if (item.type === "rect") {
+    const x = Math.min(item.x1, item.x2);
+    const y = Math.min(item.y1, item.y2);
+    const w = Math.abs(item.x2 - item.x1);
+    const h = Math.abs(item.y2 - item.y1);
+    annotatorCtx.strokeRect(x, y, w, h);
+  } else if (item.type === "arrow") {
+    drawArrow(annotatorCtx, item);
+  } else if (item.type === "text") {
+    annotatorCtx.font = `${ANNOTATION_TEXT_SIZE}px sans-serif`;
+    annotatorCtx.fillText(item.text, item.x, item.y);
+  }
 
-  annotatorStrokes.forEach(drawStroke);
+  annotatorCtx.restore();
+}
+
+function redrawAnnotator() {
+  if (!annotatorCanvas || !annotatorCtx || !annotatorImage) return;
+
+  annotatorCtx.clearRect(0, 0, annotatorCanvas.width, annotatorCanvas.height);
+  annotatorCtx.drawImage(annotatorImage, 0, 0, annotatorCanvas.width, annotatorCanvas.height);
+  annotatorItems.forEach(drawAnnotationItem);
+  if (annotatorCurrentItem) {
+    drawAnnotationItem(annotatorCurrentItem);
+  }
 }
 
 function canvasPointFromEvent(event) {
@@ -517,38 +629,79 @@ function canvasPointFromEvent(event) {
 function onAnnotatorPointerDown(event) {
   if (event.button !== 0) return;
   event.preventDefault();
+  const point = canvasPointFromEvent(event);
+
+  if (annotatorTool === "text") {
+    const value = window.prompt("Text annotation:");
+    if (value && value.trim()) {
+      annotatorItems.push({
+        type: "text",
+        text: value.trim(),
+        x: point.x,
+        y: point.y,
+        color: annotatorColor,
+      });
+      redrawAnnotator();
+    }
+    return;
+  }
+
   annotatorCanvas.setPointerCapture(event.pointerId);
-  annotatorCurrentStroke = {
-    color: ANNOTATION_COLOR,
-    width: ANNOTATION_WIDTH,
-    points: [canvasPointFromEvent(event)],
-  };
-  annotatorStrokes.push(annotatorCurrentStroke);
+
+  if (annotatorTool === "pen") {
+    annotatorCurrentItem = {
+      type: "pen",
+      color: annotatorColor,
+      width: ANNOTATION_WIDTH,
+      points: [point],
+    };
+  } else if (annotatorTool === "rect" || annotatorTool === "arrow") {
+    annotatorCurrentItem = {
+      type: annotatorTool,
+      color: annotatorColor,
+      width: ANNOTATION_WIDTH,
+      x1: point.x,
+      y1: point.y,
+      x2: point.x,
+      y2: point.y,
+    };
+  }
+
   redrawAnnotator();
 }
 
 function onAnnotatorPointerMove(event) {
-  if (!annotatorCurrentStroke) return;
+  if (!annotatorCurrentItem) return;
   event.preventDefault();
-  annotatorCurrentStroke.points.push(canvasPointFromEvent(event));
+  const point = canvasPointFromEvent(event);
+
+  if (annotatorCurrentItem.type === "pen") {
+    annotatorCurrentItem.points.push(point);
+  } else {
+    annotatorCurrentItem.x2 = point.x;
+    annotatorCurrentItem.y2 = point.y;
+  }
+
   redrawAnnotator();
 }
 
 function onAnnotatorPointerUp(event) {
-  if (!annotatorCurrentStroke) return;
+  if (!annotatorCurrentItem) return;
   event.preventDefault();
   if (annotatorCanvas.hasPointerCapture(event.pointerId)) {
     annotatorCanvas.releasePointerCapture(event.pointerId);
   }
-  annotatorCurrentStroke = null;
+  annotatorItems.push(annotatorCurrentItem);
+  annotatorCurrentItem = null;
+  redrawAnnotator();
 }
 
 function closeAnnotator(restoreToolbar) {
   if (!annotatorOverlay) return;
 
   annotatorOverlay.style.display = "none";
-  annotatorCurrentStroke = null;
-  annotatorStrokes = [];
+  annotatorCurrentItem = null;
+  annotatorItems = [];
 
   if (restoreToolbar && selectedElement) {
     showToolbarNearElement(selectedElement);
