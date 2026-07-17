@@ -320,14 +320,14 @@ function openAnnotator(imageDataUrl) {
 
     const maxWidth = Math.max(320, window.innerWidth - 32);
     const maxHeight = Math.max(240, window.innerHeight - 96);
-    const scale = Math.min(1, maxWidth / image.width, maxHeight / image.height);
-    const displayWidth = Math.max(320, Math.min(image.width, maxWidth));
-    const displayHeight = Math.max(240, Math.min(Math.round(image.height * (displayWidth / image.width)), maxHeight));
+    const scale = Math.min(maxWidth / image.width, maxHeight / image.height);
+    const displayWidth = Math.round(image.width * scale);
+    const displayHeight = Math.round(image.height * scale);
 
     annotatorCanvas.width = image.width;
     annotatorCanvas.height = image.height;
-    annotatorCanvas.style.width = `${Math.max(1, Math.floor(image.width * scale))}px`;
-    annotatorCanvas.style.height = `${Math.max(1, Math.floor(image.height * scale))}px`;
+    annotatorCanvas.style.width = `${Math.max(1, displayWidth)}px`;
+    annotatorCanvas.style.height = `${Math.max(1, displayHeight)}px`;
 
     annotatorOverlay.style.alignItems = "flex-start";
     annotatorOverlay.style.overflow = "auto";
